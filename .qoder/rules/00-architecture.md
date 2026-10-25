@@ -1,0 +1,36 @@
+# 项目：扫雷（MineSweeper）—— 架构规则
+
+## 分层（不可违反）
+- `src/minesweeper/core/` 只允许 import 标准库。禁止 import tkinter、argparse、
+  以及本项目任何 GUI / CLI 模块。
+- `src/minesweeper/gui/` 与 `cli.py` 只调用 core 的公开接口，
+  不得访问以下划线开头的属性。
+- GUI 层不出现任何雷数计算、展开逻辑、胜负判定。若确实需要，先提出改 core 接口。
+
+## core 公开接口（已冻结，改动前必须先问我）
+    Game(rows, cols, mines, seed=None)
+      .state                        -> GameState(PLAYING / WON / LOST)
+      .view(r, c)                   -> CellView(revealed, flagged, adjacent, mine)
+      .reveal(r, c)                 -> list[tuple[int, int]]   # 发生变化的格子
+      .toggle_flag(r, c)            -> list[tuple[int, int]]
+      .chord(r, c)                  -> list[tuple[int, int]]
+      .mines_left                   -> int
+      .exploded_cell                -> tuple[int, int] | None
+
+## 硬性禁令
+- `view()` 在 state != LOST 时，对未翻开格必须返回 `mine=False`（不得泄露雷位）。
+- 禁止用递归做 0 区展开（大棋盘会 RecursionError）。
+- 禁止模块级可变全局状态；随机性只能来自构造时传入的 seed。
+- 除 `core/rng.py` 外，禁止 `import random`。
+- 所有坐标访问必须经过 `in_bounds()` / `neighbors()` 裁剪；
+  禁止裸索引（Python 负索引会静默取到末格）。
+- 邻域数字在布雷后一次性 O(8N) 预计算，不得在查询或渲染时重算；
+  "现算"版本只允许出现在 `tests/reference.py`。
+- 不得引入第三方运行时依赖（开发依赖仅 pytest）。
+- 不得建 `utils.py` 之类的垃圾桶模块；按职责并入已有模块。
+
+## 代码风格
+- 类型注解齐全；公开函数写 docstring（一句话说明契约即可）。
+- 一个函数只做一件事；超过 40 行先拆再写。
+- 禁止魔数：用 Enum 或具名常量表达"雷 / 旗 / 未翻开"。
+- 单文件超过 300 行时提出拆分建议，不要自行大改结构。
