@@ -55,10 +55,13 @@ class Board:
         raise NotImplementedError
 
     def neighbors(self, r: int, c: int) -> Iterator[tuple[int, int]]:
-        """生成已裁剪的合法邻居，绝不返回边框或越界坐标。
+        """生成已裁剪的合法邻居（0-based），绝不返回边框坐标。
 
-        注意：生成器只能迭代一次。热路径请直接迭代 self._offsets，
-        不要调用本方法。
+        Raises:
+            IndexError: (r, c) 本身越界。与 is_mine/adjacent_at 保持一致，
+                不静默返回空迭代器（那会掩盖调用点错误）。
+
+        注意：生成器只能迭代一次。热路径请直接迭代 self._offsets。
         """
         raise NotImplementedError
 
@@ -121,7 +124,12 @@ class Board:
 
     # ---------- 指纹与序列化 ----------
     def fingerprint(self) -> bytes:
-        """内部缓冲区（含边框）的字节拷贝。同尺寸下可比。"""
+        """雷位缓冲区 + 邻域数缓冲区拼接后的字节串（含边框）。
+
+        长度 2*(rows+2)*(cols+2)。性质：同一盘面无论由 place_mines
+        还是 from_hex 得到，指纹必须相同；不同盘面必须不同。
+        同尺寸下可比，跨尺寸不可比。
+        """
         raise NotImplementedError
 
     def to_hex(self) -> str:

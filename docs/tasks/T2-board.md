@@ -45,3 +45,10 @@ docs/、src/minesweeper/gui/**、pyproject.toml、.qoder/rules/**
 
 ## 明确不做
 自动展开、Game 状态机、胜负判定、GUI、性能优化、R3
+
+- **不得修改任何方法签名与 docstring 的契约部分**。docstring 里的
+  Raises / 复杂度 / 禁止事项是验收依据；若你认为契约有误，先提出，
+  不要自行修改。允许在 docstring 末尾追加实现说明。
+- 骨架里已实现的 `__init__` 与 `_off()` 不得改写（除非我先同意）。
+- 完成后自查： `findstr /s /n "NotImplementedError" src\minesweeper\core\board.py`
+  必须无输出。
