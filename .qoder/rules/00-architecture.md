@@ -28,6 +28,13 @@
   "现算"版本只允许出现在 `tests/reference.py`。
 - 不得引入第三方运行时依赖（开发依赖仅 pytest）。
 - 不得建 `utils.py` 之类的垃圾桶模块；按职责并入已有模块。
+```markdown
+- 已存在的接口骨架（`raise NotImplementedError` 的方法）视为契约：
+  不得修改方法签名，不得改动 docstring 中 Args / Raises / 复杂度 / 禁止事项
+  等描述契约的部分。认为契约有误时应先提出，不得自行修改。
+- 骨架中已给出实现的辅助函数（如 `_off()`）不得重写。
+- 每个任务完成后必须执行 `findstr /n "NotImplementedError" src` 自查；
+  若本次任务目标不是补齐全部骨架，须说明剩余方法与原因。
 
 ## 代码风格
 - 类型注解齐全；公开函数写 docstring（一句话说明契约即可）。
