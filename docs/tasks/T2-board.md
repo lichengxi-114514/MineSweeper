@@ -24,12 +24,21 @@
    报错消息必须含：所需雷数、可用格数、forbid 规模三个数字。
 8. 除 rng.py 外禁止 import random；禁止递归；禁止第三方库。
 9. 一个函数 <= 40 行；公开方法保留骨架 docstring，可在末尾追加实现说明。
+10. to_hex 编码：每格 1 字节 = 高 4 位雷位(0/1) | 低 4 位邻域数(0-8)，
+   小写 hex、无分隔、无换行；长度恰为 2*rows*cols。
+   from_hex 必须校验，任一不满足抛 ValueError（消息含原因与首个出错坐标）：
+   (a) 去空白后长度 == 2*rows*cols；(b) 全为 hex 字符；
+   (c) 高 4 位 <= 1；(d) 低 4 位 <= 8；
+   (e) 由雷位重算的邻域数必须与低 4 位逐一相等。
+   校验通过后置 _placed=True、_mine_count=雷位数。
+11. 唯一批准新增的成员是私有方法 _precompute_adjacent()，由 place_mines
+    与 from_hex 共用。不得新增其他方法，不得改任何签名。
 
 ### 契约保护（硬约束，违反即视为任务失败）
-10. **不得修改任何方法签名，也不得改动 docstring 中描述契约的部分**
+12. **不得修改任何方法签名，也不得改动 docstring 中描述契约的部分**
     （Args / Raises / 返回值语义 / 复杂度 / 禁止事项）。
     若你认为契约有误，先提出来等我确认，不要自行修改。
-11. **骨架里已实现的 `__init__` 与 `_off()` 不得改写**（除非我先同意）。
+13. **骨架里已实现的 `__init__` 与 `_off()` 不得改写**（除非我先同意）。
 
 ## 只允许改动
 - 修改：src/minesweeper/core/board.py、src/minesweeper/core/rng.py
@@ -46,9 +55,14 @@
 - 同 seed 两次 place_mines → fingerprint 相同；不同 seed → 不同
 - to_hex 往返：from_hex(to_hex()) 后 fingerprint 一致
 - fingerprint 长度 == 2*(rows+2)*(cols+2)；to_hex 长度 == 2*rows*cols
+- 角上单雷：只在 (0,0) 放一颗雷时 adjacent_at(0,1)/adjacent_at(1,0)/adjacent_at(1,1) 均 == 1
+- protected_cells 必须含自身：(r,c) in protected_cells(r,c,rows,cols)；
+  protected_cells(4,4,9,9) 长度为 9
+- from_hex 还原后再 place_mines → RuntimeError；mine_count 等于雷位数
 
 ### 边界
-- 1×1：mines=0 成功；mines=1 抛 ValueError
+- 1×1：place_mines(rng, 0) 成功；place_mines(rng, 1, forbid={(0,0)}) 抛 ValueError。
+  （"1×1 放 1 雷被拒"属于 Game 层 D6=B 的约束，不在 Board 层验证）
 - 2×2：任意格 max_mines_at == 0
 - 3×3：角 max_mines_at == 5，中心 == 0
 - 9×9：角 77 / 边上非角 75 / 内部 72（三种各取一个坐标断言）
@@ -56,6 +70,10 @@
   在 1×1…9×9 共 20 组尺寸上一致
 - neighbors：角 3 个、边上 5 个、内部 8 个；全部落在 [0,rows) × [0,cols)
 - 高密度：9×9 角上首点、mines=77 成功；mines=78 抛 ValueError
+- neighbors 与 _offsets 交叉验证：对 9×9 全部 81 格断言
+  set(neighbors(r,c)) == {(r+dr,c+dc) for 八方向 if in_bounds}，数量相等
+- mines == 候选数 的边界成功用例：3×3 角首点、mines=5 → 成功，
+  5 个非保护格全为雷、4 个保护格全非雷
 
 ### 异常
 - place_mines 重复调用 → RuntimeError
@@ -64,7 +82,8 @@
 - is_mine(-1,0)、is_mine(0,cols)、adjacent_at(rows,0) → IndexError（不返回 False）
 - neighbors(-1,-1) → IndexError（不返回空迭代器）
 - Board(0,5)、Board(5,0) → ValueError
-
+- from_hex 五类坏样本各抛 ValueError：长度错 / 非 hex 字符 /
+  高 4 位 == 2 / 低 4 位 == 9 / adj 与雷位矛盾
 ## 自查（交付前必须执行并粘贴输出）
 ```bat
 findstr /n "NotImplementedError" src\minesweeper\core\board.py | find /c "NotImplementedError"
