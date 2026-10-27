@@ -187,3 +187,26 @@
   board_canvas._playing() 已提供该守卫，实现成本为零。
 - 已否决：B（以"更宽容"换来了错误可见性的下降，得不偿失）。
 - 验证：tests/test_game.py 中 "LOST 后 reveal(-1,0) 仍抛 IndexError" 用例。
+
+## D11 交叉验证的点击策略与随机源
+- 决定：点击序列用独立随机源 random.Random(seed*7919+13)，与 Game 的 seed 解耦。
+  首次点击固定为棋盘中心；之后每步以 0.7 概率选"与已翻开区相邻的未翻开格"，
+  0.3 概率在全部未翻开格中均匀选；已翻开、已插旗格排除。
+  上限 max_clicks（9×9 取 40，16×16 取 60），遇 WON/LOST 提前终止。
+- 理由：独立随机源使"点击序列"可复现且与盘面生成解耦，出现差异时能定位到
+  reveal 或 RefBoard 之一，而非"两者都变了"。
+  偏向前沿格是为了让 0 区展开与边界裁剪被高频触发。
+- 代价：序列依赖策略实现，调整策略会让历史失败无法直接复现。
+  缓解：把策略版本与 seed 一起写进失败信息。
+- 不覆盖：插旗相关语义（D9）——Game.toggle_flag 与 RefBoard 均尚无插旗概念，
+  留待 S4b 单独立项。
+
+## D12 交叉验证的比对协议细化（补充 D7）
+- 每次点击后依次断言：
+  1. set(g.revealed_cells) == set(ref.revealed_numbers().keys())
+  2. set(delta) == set(g.revealed_cells) - prev_set   （delta 必须等于差集）
+  3. 对每个已翻开格：g.view(r,c).adjacent == ref.revealed_numbers()[(r,c)]
+     含被踩中的雷格（契约：已翻开的雷格 adjacent 为真实邻域数）
+- 踩雷后：断言 state 为 LOST、delta 恰为该格，然后终止本局，不再比对。
+- 胜利后：断言 len(revealed_cells) == rows*cols - mines，终止本局。
+- 一律 set 比较，不断言顺序（Game 用 BFS，RefBoard 用 DFS）。
