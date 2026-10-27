@@ -3,7 +3,7 @@
 - 编号：T3c
 - 前置：S3b 完成（80 项测试通过，tag v0.3-reveal）
 - 对应验收项：A3
-- 版本：v1
+- 版本：v2（胜负用例改为确定性，新增两侧 delta 比对）
 
 ## 1. 任务
 
@@ -17,23 +17,24 @@
 点击序列必须与盘面生成解耦。若复用 `Game` 内部的 rng，调整点击策略会连带
 改变盘面，出差异时无法判断是 `reveal` 错了还是参考实现错了。
 
-## 3. 点击策略（必须完全按此实现）
+## 3. 点击策略
 
 ```python
 import random
 
 def _pick(crng, g, revealed, flagged):
-    """返回下一个要点击的格子。revealed/flagged 为当前集合。"""
-    candidates_frontier = [
+    """返回下一个要点击的格子；无可选时返回 None。"""
+    frontier = [
         (r, c) for r in range(g.rows) for c in range(g.cols)
         if (r, c) not in revealed and (r, c) not in flagged
-        and any((nr, nc) in revealed for nr, nc in _neighbors(r, c, g.rows, g.cols))
+        and any((nr, nc) in revealed
+                for nr, nc in _neighbors(r, c, g.rows, g.cols))
     ]
     everything = [
         (r, c) for r in range(g.rows) for c in range(g.cols)
         if (r, c) not in revealed and (r, c) not in flagged
     ]
-    pool = candidates_frontier if crng.random() < 0.7 and candidates_frontier else everything
+    pool = frontier if crng.random() < 0.7 and frontier else everything
     return crng.choice(pool) if pool else None
 ```
 
@@ -48,14 +49,14 @@ def _run_game(seed, rows, cols, mines, max_clicks):
     crng = random.Random(seed * 7919 + 13)
 
     first = (rows // 2, cols // 2)
-    delta = g.reveal(*first)                        # ① 被测动作
-    ref = RefBoard(rows, cols, g.snapshot_mines())   # ② 取实际雷位（仅此时）
-    ref_delta = ref.expand(*first)                   # ③ 参考实现同一动作
+    delta = g.reveal(*first)                        # 被测动作
+    ref = RefBoard(rows, cols, g.snapshot_mines())   # 取实际雷位（仅此时）
+    ref_delta = ref.expand(*first)                   # 参考实现同一动作
 
     prev = set()
     assert set(g.revealed_cells) == set(ref.revealed_numbers())
     assert set(delta) == set(g.revealed_cells) - prev
-    assert set(ref_delta) == set(delta)              # ④ 两侧 delta 必须相等
+    assert set(ref_delta) == set(delta)              # 两侧 delta 必须相等
 
     for _ in range(max_clicks):
         if g.state is not GameState.PLAYING:
@@ -89,36 +90,34 @@ def _run_game(seed, rows, cols, mines, max_clicks):
     return g.state, g.revealed_cells
 ```
 
+`assert delta == [cell]` 有意使用列表比较（踩雷只有一格，顺序无歧义），
+额外验证"返回值恰为一格"。
+
 ## 5. 必须写的测试（共 6 条）
 
 - `test_cross_validation_9x9_1000_games`：seed 0..999，9×9 / 10 雷，max_clicks=40
 - `test_cross_validation_16x16_200_games`：seed 0..199，16×16 / 40 雷，max_clicks=60
 - `test_crossval_zero_mines_win`：seed 0..4，`Game(9,9,0)`，首点 (4,4)
   → 81 格全开、`state` 为 WON、两侧 delta 与累计集合都相等
-  （无雷时首点必为 0 格，按 BFS 全盘展开；81 == 81-0）
 - `test_crossval_mine_click_lost`：seed 0..49，`Game(9,9,10)`，首点 (4,4) 后
   从 `snapshot_mines() - revealed_cells` 取一颗雷点开
   → LOST、`delta == [(r,c)]`、`ref` 的 delta 为 `{(r,c)}`、
   两侧累计集合仍相等、累计集合恰好增加该格
-  （首点保护 9 格，雷必在保护圈外，故该集合非空）
 - `test_whole_run_deterministic`：同 seed 跑两次 `_run_game`，
   返回的 `(state, revealed_cells)` 完全相同
 - `test_crossval_uses_only_public_api`：扫描本文件，断言不含
-  `._board`、`._revealed`、`._flagged`（雷位一律经 `snapshot_mines()`）
+  `._board`、`._revealed`、`._flagged`
 
-不写「在 N 局中至少出现一局 WON/LOST」这类依赖运气的用例：
-胜负两条路径由上述确定性用例覆盖。
+不写"在 N 局中至少出现一局 WON/LOST"这类依赖运气的用例。
 
 ## 6. 性能与如实记录
-
-先单独跑 9×9 那 1000 局，记录耗时：
 
 ```bat
 .venv\Scripts\python.exe -m pytest tests\test_against_reference.py -q --durations=3
 ```
 
-把实际耗时写进 `docs/perf.md`。若总耗时 > 60 秒，可降为 500 局，
-但**必须在 docs/perf.md 与 README 中写明实际局数**，不得声称 1000 局。
+把实际耗时与局数写进 `docs/perf.md`。若总耗时 > 60 秒，可降为 500 / 100 局，
+但**必须在 docs/perf.md 与 README 写明实际局数**，不得声称 1000 局。
 
 ## 7. 允许修改
 
@@ -129,16 +128,16 @@ def _run_game(seed, rows, cols, mines, max_clicks):
 
 ## 8. 明确不做
 
-- 不测插旗相关语义（Game.toggle_flag 未实现，RefBoard 无插旗概念）——S4b 另行立项
-- 不给 RefBoard 加任何方法
-- 不修改 src/ 下的实现来"让交叉验证通过"
+- 不测插旗相关语义（`toggle_flag` 未实现，`RefBoard` 无插旗概念）——S4b 另行立项
+- 不给 `RefBoard` 加任何方法
+- 不修改 `src/` 下的实现来"让交叉验证通过"
 
 ## 9. 交付方式（两轮）
 
-第一轮：只输出文字，不改文件。给出
-1. `_run_game` 的完整流程与你对每一步断言理由的说明；
+第一轮：只输出文字，不改文件。
+1. `_run_game` 的完整流程与每步断言理由；
 2. 踩雷那一刻，`Game.revealed_cells` 与 `RefBoard.revealed_numbers().keys()`
-   为什么仍然应当相等；
+   为什么仍然相等；
 3. 你认为卡片有歧义或错误的地方，没有就写"无"。
 
 第二轮（确认后）：实现并运行，粘贴完整输出与 `git diff --stat`。
@@ -147,5 +146,4 @@ def _run_game(seed, rows, cols, mines, max_clicks):
 
 - `git diff --stat` 只有一个文件
 - pytest 全绿，测试总数 80 → 86（新增 6 条）
-- 单独跑本文件时记录了耗时，且 docs/perf.md 写入了实际局数与耗时
-- `docs/perf.md` 已记录实际耗时与局数
+- 单独跑本文件时记录了耗时，且 `docs/perf.md` 写入了实际局数与耗时
