@@ -26,3 +26,5 @@ Thumbs.db
 *.log
 scratch/
 tmp/
+.pytest_out.txt
+*.tmp

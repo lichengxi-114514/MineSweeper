@@ -143,9 +143,11 @@
      失去意义。
   4. 用 `Board.from_hex` 预置雷位构造 Game——绕过延迟布雷与首点保护，A2 那条
      路径就没被测到。
-- 接口影响：`.qoder/rules/00-architecture.md` 的冻结接口新增一行
-  `snapshot_mines() -> frozenset[tuple[int, int]]`（仅测试与离线分析用）。
-  这是本条唯一批准的接口增补，其余签名不得改动。
+- 本阶段接口增补：`revealed_cells`（累计已翻开集合，供比对）与
+  `snapshot_mines`（完整雷位，仅测试用）。其余签名不得改动。
+- `snapshot_mines` 的泄露风险已评估：缓解措施为 docstring 明示 + 架构测试
+  扫描 src/ 下的调用（除 game.py 定义处）。不采用"测试直接读 game._board"的方案，
+  避免第二处审计点与私有字段耦合。
 - 已定义、待验证：S3c 落地后补"1000 局 0 差异"与总耗时实测。
 
 ## D8 Game 的已翻开/已插旗集合表示

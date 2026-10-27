@@ -21,7 +21,10 @@
 - Python 3.10+（零第三方运行时依赖）
 
 ## 安装与运行
-（待补：随 CLI / GUI 完成更新）
+python -m venv .venv
+.venv\Scripts\activate.bat        # macOS/Linux: source .venv/bin/activate
+pip install -e .                  # 让 python -m minesweeper 可用
+pip install -r requirements-dev.txt
 
 ## 项目结构
 （待补）

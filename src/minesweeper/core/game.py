@@ -104,7 +104,7 @@ class Game:
 
         用途：S3c 与 RefBoard.revealed_numbers().keys() 逐次比对。
         """
-        raise NotImplementedError
+        return frozenset(self._revealed)
 
     def view(self, r: int, c: int) -> CellView:
         """该格对玩家可见的信息。
@@ -119,7 +119,17 @@ class Game:
         Raises:
             IndexError: 坐标越界（先于任何状态判断）。
         """
-        raise NotImplementedError
+        self._check_bounds(r, c)
+        is_revealed = (r, c) in self._revealed
+        is_flagged = (r, c) in self._flagged
+        adj = self._board.adjacent_at(r, c) if is_revealed else 0
+        mine = (
+            self._state is GameState.LOST
+            and self._placed
+            and self._board.is_mine(r, c)
+        )
+        return CellView(revealed=is_revealed, flagged=is_flagged,
+                        adjacent=adj, mine=mine)
 
     # ---------- 核心操作（S3b 实现）----------
     def reveal(self, r: int, c: int) -> list[tuple[int, int]]:
@@ -146,7 +156,69 @@ class Game:
         Raises:
             IndexError: 坐标越界。
         """
-        raise NotImplementedError
+        self._check_bounds(r, c)
+        if self._state is not GameState.PLAYING:
+            return []
+        if (r, c) in self._revealed:
+            return []
+        if (r, c) in self._flagged:
+            return []
+        if not self._placed:
+            forbid = Board.protected_cells(r, c, self.rows, self.cols)
+            self._board.place_mines(self._rng, self.mines, forbid)
+            self._placed = True
+        if self._board.is_mine(r, c):
+            self._revealed.add((r, c))
+            self._exploded = (r, c)
+            self._state = GameState.LOST
+            return [(r, c)]
+        delta: list[tuple[int, int]] = []
+        self._flood(r, c, delta)
+        if len(self._revealed) == self.rows * self.cols - self.mines:
+            self._state = GameState.WON
+        return delta
+
+    def _flood(self, r: int, c: int, delta: list[tuple[int, int]]) -> None:
+        """BFS 展开，把新翻开的格追加到 delta。
+
+        不变量：只有 adjacent_at==0 的格才传播；0 格的定义保证其 8 邻居
+        均非雷，因此雷格不可能被入队，_flood 内无需判断邻居是否为雷。
+        """
+        queue: deque[tuple[int, int]] = deque([(r, c)])
+        while queue:
+            cr, cc = queue.popleft()
+            if (cr, cc) in self._revealed:
+                continue
+            self._revealed.add((cr, cc))
+            delta.append((cr, cc))
+            if self._board.adjacent_at(cr, cc) == 0:
+                for nr, nc in self._board.neighbors(cr, cc):
+                    if (nr, nc) not in self._revealed and (nr, nc) not in self._flagged:
+                        queue.append((nr, nc))
+
+    def snapshot_mines(self) -> frozenset[tuple[int, int]]:
+        """返回完整雷位（答案）。**仅供测试与离线分析，产品代码禁止调用。**
+
+        该方法是本项目唯一被批准的信息泄露接口，理由是：
+        测试需要在"盘面仍处于 PLAYING"时拿到真实雷位，喂给参考实现做交叉验证；
+        若改为对局结束后才可调用，则不满足 S3c 的逐次比对需求。
+
+        约束落实情况：
+            - 禁止在产品代码调用：tests/test_architecture.py 用源码扫描机械检查
+            - 禁止用于 view() 的信息面：view 的 mine 只由 state 决定，与此无关
+            - 布雷前调用抛 RuntimeError，避免空集合被误读为"盘面无雷"
+
+        Raises:
+            RuntimeError: 尚未布雷（即尚未发生首次 reveal）。
+        """
+        if not self._placed:
+            raise RuntimeError("尚未布雷，不能获取雷位")
+        mines: set[tuple[int, int]] = set()
+        for r in range(self.rows):
+            for c in range(self.cols):
+                if self._board.is_mine(r, c):
+                    mines.add((r, c))
+        return frozenset(mines)
 
     # ---------- 插旗与和弦（S4 实现，本轮保持未实现）----------
     def toggle_flag(self, r: int, c: int) -> list[tuple[int, int]]:

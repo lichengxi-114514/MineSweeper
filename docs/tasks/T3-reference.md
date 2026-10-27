@@ -201,6 +201,7 @@ def test_experiment_recursion_limit_40x40():
 
 ## 11. 交付前自检
 
-- `findstr /n "minesweeper" tests\reference.py` 无输出
+- 用 AST 检查 tests\reference.py 的 import：只允许标准库，
+  不得出现 minesweeper 模块（docstring 里提到该词不算）
 - 未修改 `src/` 下任何文件
 - pytest 全绿，测试总数比上一阶段多

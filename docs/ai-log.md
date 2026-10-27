@@ -19,3 +19,26 @@
 - 处理：保留已推送历史不改写，标签指向 f3b8aee，内容完整可核验
 - 验证：全新克隆中 git ls-files 含三个实现文件，pytest 31 passed
 - 后续约定：git add 一律显式列文件名；提交前必看 git diff --cached --stat
+
+## 案例 2：参考实现的状态语义未被定义
+- 场景：T3a 第一轮，Qoder 指出 §4 的 expand 契约（返回本次新增）与
+  §7 测试要求（revealed_numbers() 键集合 == 返回值）只在首次调用时自洽
+- 我的判断：它是对的，且根因是我的卡片漏写了“跨调用是否累积”这一语义，
+  不是测试写错了
+- 未采纳的部分：它建议“只要测试只调用一次 expand 就成立”——这会回避而非
+  定义语义；S3c 需要在同一盘面连续点击比对，语义必须明确
+- 处理：将 RefBoard 定为有状态（_revealed 累积），expand 返回 delta；
+  补充重复点击返回空集合的规则与用例
+- 验证：新增 3 条测试（累积并集、重复点击、已翻开雷格），全绿
+
+## 案例 3：架构测试的判据过宽导致假阳性
+- 现象：test_no_randomness_outside_rng 失败，指向 board.py 的 import random
+- 核查：该 import 仅用于 place_mines 的参数注解 random.Random；board.py 顶部
+  有 from __future__ import annotations，注解运行时不求值；随机性全部来自
+  注入的 rng 实例（rng.sample 为实例方法）
+- 判断：被测代码正确，是断言判据过宽（字符串匹配 vs AST 调用检查）
+- 处理：测试改为 AST 级检查 random 模块的函数调用；规则文本同步修正为
+  "禁止产生随机性"而非"禁止 import"
+- 界线说明：改动的是"检查什么性质"，而非放宽既有断言；被测代码未改动
+- 反证：向 game.py 注入一次 random.sample 调用，测试按预期变红，撤回后恢复
+- 意外收获：该失败证明了机械检查确实在运行，不是摆设

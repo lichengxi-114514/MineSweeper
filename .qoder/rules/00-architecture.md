@@ -16,12 +16,18 @@
       .chord(r, c)                  -> list[tuple[int, int]]
       .mines_left                   -> int
       .exploded_cell                -> tuple[int, int] | None
+      .revealed_cells               -> frozenset[tuple[int, int]]   # 累计已翻开
+      .snapshot_mines()             -> frozenset[tuple[int, int]]   # 仅测试用，见 D7
+
+
 
 ## 硬性禁令
 - `view()` 在 state != LOST 时，对未翻开格必须返回 `mine=False`（不得泄露雷位）。
 - 禁止用递归做 0 区展开（大棋盘会 RecursionError）。
 - 禁止模块级可变全局状态；随机性只能来自构造时传入的 seed。
-- 除 `core/rng.py` 外，禁止 `import random`。
+- 除 `core/rng.py` 外，禁止**产生**随机性：不得调用 `random` 模块的任何函数，
+  也不得 `from random import ...`。仅用于类型注解的 `import random` 允许。
+- 随机性只能来自构造函数注入的 rng 实例（`rng.sample(...)` 等实例方法）。
 - 所有坐标访问必须经过 `in_bounds()` / `neighbors()` 裁剪；
   禁止裸索引（Python 负索引会静默取到末格）。
 - 邻域数字在布雷后一次性 O(8N) 预计算，不得在查询或渲染时重算；
