@@ -43,17 +43,19 @@ def _pick(crng, g, revealed, flagged):
 
 ```python
 def _run_game(seed, rows, cols, mines, max_clicks):
+    """返回 (state, revealed_cells)，供整局确定性检查使用。"""
     g = Game(rows, cols, mines, seed=seed)
     crng = random.Random(seed * 7919 + 13)
 
     first = (rows // 2, cols // 2)
-    delta = g.reveal(*first)                      # ① 被测动作
-    ref = RefBoard(rows, cols, g.snapshot_mines())  # ② 取实际雷位（仅此时）
-    ref.expand(*first)                            # ③ 参考实现执行同一动作
+    delta = g.reveal(*first)                        # ① 被测动作
+    ref = RefBoard(rows, cols, g.snapshot_mines())   # ② 取实际雷位（仅此时）
+    ref_delta = ref.expand(*first)                   # ③ 参考实现同一动作
 
     prev = set()
     assert set(g.revealed_cells) == set(ref.revealed_numbers())
     assert set(delta) == set(g.revealed_cells) - prev
+    assert set(ref_delta) == set(delta)              # ④ 两侧 delta 必须相等
 
     for _ in range(max_clicks):
         if g.state is not GameState.PLAYING:
@@ -61,14 +63,17 @@ def _run_game(seed, rows, cols, mines, max_clicks):
         cell = _pick(crng, g, set(g.revealed_cells), set())
         if cell is None:
             break
+
         prev = set(g.revealed_cells)
         delta = g.reveal(*cell)
-        ref.expand(*cell)
+        ref_delta = ref.expand(*cell)
 
         assert set(g.revealed_cells) == set(ref.revealed_numbers()), \
             f"seed={seed} cell={cell} 累计集合不一致"
         assert set(delta) == set(g.revealed_cells) - prev, \
             f"seed={seed} cell={cell} delta 与差集不一致"
+        assert set(ref_delta) == set(delta), \
+            f"seed={seed} cell={cell} 两侧 delta 不一致"
 
         rn = ref.revealed_numbers()
         for rc in g.revealed_cells:
@@ -81,18 +86,28 @@ def _run_game(seed, rows, cols, mines, max_clicks):
 
     if g.state is GameState.WON:
         assert len(g.revealed_cells) == rows * cols - mines
-    return g.state
+    return g.state, g.revealed_cells
 ```
 
-## 5. 必须写的测试
+## 5. 必须写的测试（共 6 条）
 
 - `test_cross_validation_9x9_1000_games`：seed 0..999，9×9 / 10 雷，max_clicks=40
 - `test_cross_validation_16x16_200_games`：seed 0..199，16×16 / 40 雷，max_clicks=60
-- `test_both_outcomes_observed`：上面覆盖的局中，至少各出现一局 WON 与一局 LOST
-  （若未出现，说明点击策略有问题，不是放宽断言的理由）
-- `test_click_sequence_deterministic`：同一 seed 调用两次 `_pick` 序列得到相同结果
-- `test_no_src_import_in_test`：断言本文件不含 `import minesweeper.core.game` 之外
-  的内部访问（允许 import Game/GameState/GameRef 的公开名字）
+- `test_crossval_zero_mines_win`：seed 0..4，`Game(9,9,0)`，首点 (4,4)
+  → 81 格全开、`state` 为 WON、两侧 delta 与累计集合都相等
+  （无雷时首点必为 0 格，按 BFS 全盘展开；81 == 81-0）
+- `test_crossval_mine_click_lost`：seed 0..49，`Game(9,9,10)`，首点 (4,4) 后
+  从 `snapshot_mines() - revealed_cells` 取一颗雷点开
+  → LOST、`delta == [(r,c)]`、`ref` 的 delta 为 `{(r,c)}`、
+  两侧累计集合仍相等、累计集合恰好增加该格
+  （首点保护 9 格，雷必在保护圈外，故该集合非空）
+- `test_whole_run_deterministic`：同 seed 跑两次 `_run_game`，
+  返回的 `(state, revealed_cells)` 完全相同
+- `test_crossval_uses_only_public_api`：扫描本文件，断言不含
+  `._board`、`._revealed`、`._flagged`（雷位一律经 `snapshot_mines()`）
+
+不写「在 N 局中至少出现一局 WON/LOST」这类依赖运气的用例：
+胜负两条路径由上述确定性用例覆盖。
 
 ## 6. 性能与如实记录
 
@@ -131,5 +146,6 @@ def _run_game(seed, rows, cols, mines, max_clicks):
 ## 10. 交付前自检
 
 - `git diff --stat` 只有一个文件
-- pytest 全绿，测试总数增加 5 条
+- pytest 全绿，测试总数 80 → 86（新增 6 条）
+- 单独跑本文件时记录了耗时，且 docs/perf.md 写入了实际局数与耗时
 - `docs/perf.md` 已记录实际耗时与局数
