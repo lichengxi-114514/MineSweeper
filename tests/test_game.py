@@ -316,3 +316,272 @@ def test_reveal_out_of_bounds_after_lost():
     assert g.state is GameState.LOST
     with pytest.raises(IndexError):
         g.reveal(-1, 0)
+
+
+# ========== 插旗基础（T4 §5）==========
+
+def test_flag_before_mines_placed():
+    """未布雷即可插旗：toggle_flag 返回 [(r,c)]，view.flagged True，mines_left 减 1。"""
+    g = Game(9, 9, 10)
+    assert g.toggle_flag(0, 0) == [(0, 0)]
+    assert g.view(0, 0).flagged is True
+    assert g.mines_left == 9
+
+
+def test_flag_toggle_off():
+    """再次调用撤旗：返回 [(r,c)]，flagged False，mines_left 恢复。"""
+    g = Game(9, 9, 10)
+    g.toggle_flag(0, 0)
+    assert g.toggle_flag(0, 0) == [(0, 0)]
+    assert g.view(0, 0).flagged is False
+    assert g.mines_left == 10
+
+
+def test_flag_on_revealed_cell_returns_empty():
+    """已翻开格不可插旗：toggle_flag 返回 []，flagged 仍 False。"""
+    g = Game(9, 9, 10, seed=20)
+    g.reveal(4, 4)
+    assert g.view(4, 4).revealed is True
+    assert g.toggle_flag(4, 4) == []
+    assert g.view(4, 4).flagged is False
+
+
+def test_flag_count_exceeds_mines():
+    """旗数超雷数：不抛异常，mines_left 可为负（D13）。"""
+    g = Game(9, 9, 1)
+    for r in range(5):
+        g.toggle_flag(r, 0)
+    assert g.mines_left == -4
+
+
+def test_flag_out_of_bounds_raises():
+    """越界 -> IndexError。"""
+    g = Game(9, 9, 10)
+    with pytest.raises(IndexError):
+        g.toggle_flag(-1, 0)
+    with pytest.raises(IndexError):
+        g.toggle_flag(0, 9)
+
+
+def test_flag_after_lost_returns_empty():
+    """LOST 后 toggle_flag -> []。"""
+    g = Game(9, 9, 10, seed=21)
+    g.reveal(4, 4)
+    if g.state is not GameState.LOST:
+        mines = g.snapshot_mines()
+        mine_cell = next(iter(mines))
+        g.reveal(mine_cell[0], mine_cell[1])
+    assert g.state is GameState.LOST
+    assert g.toggle_flag(0, 0) == []
+
+
+# ========== D9 与 D16 组合（确定性）==========
+
+def test_d9_d16_flag_blocks_flood_then_win():
+    """Game(9,9,0)：插旗 (4,4) 后 reveal(0,0) -> 80 格、(4,4) 未翻开、PLAYING。
+    撤旗后 reveal(4,4) -> 81 格、WON。"""
+    g = Game(9, 9, 0)
+    g.toggle_flag(4, 4)
+    g.reveal(0, 0)
+    assert len(g.revealed_cells) == 80
+    assert (4, 4) not in g.revealed_cells
+    assert g.state is GameState.PLAYING
+
+    g.toggle_flag(4, 4)
+    g.reveal(4, 4)
+    assert len(g.revealed_cells) == 81
+    assert g.state is GameState.WON
+
+
+# ========== chord ==========
+
+def test_chord_on_unrevealed_returns_empty():
+    """未翻开格 chord -> []。"""
+    g = Game(9, 9, 10, seed=30)
+    g.reveal(4, 4)
+    # 找一个未翻开的格
+    for r in range(9):
+        for c in range(9):
+            if (r, c) not in g.revealed_cells:
+                assert g.chord(r, c) == []
+                return
+
+
+def test_chord_on_zero_cell_returns_empty():
+    """已翻开且 adjacent==0 的格 chord -> []。"""
+    g = Game(9, 9, 10, seed=31)
+    g.reveal(4, 4)
+    # 找一个已翻开且 adjacent==0 的格
+    for (r, c) in g.revealed_cells:
+        if g.view(r, c).adjacent == 0:
+            assert g.chord(r, c) == []
+            return
+
+
+def test_chord_flag_mismatch_is_atomic():
+    """旗数不匹配时 chord -> []，且 _revealed/_flagged/_state 均不变。
+    用 snapshot_mines() 动态寻找 adjacent >= 2 的已翻开格，不写死坐标。"""
+    g = Game(9, 9, 10, seed=32)
+    g.reveal(4, 4)
+    mines = g.snapshot_mines()
+
+    # 动态搜索 adjacent >= 2 的已翻开格
+    target = None
+    for (r, c) in g.revealed_cells:
+        if g.view(r, c).adjacent >= 2:
+            target = (r, c)
+            break
+    assert target is not None, "盘面中应存在 adjacent >= 2 的已翻开格"
+
+    # 在 target 的雷邻居中只插 1 面旗（制造 mismatch）
+    tr, tc = target
+    mine_neighbors = [
+        (tr + dr, tc + dc)
+        for dr in (-1, 0, 1) for dc in (-1, 0, 1)
+        if (dr, dc) != (0, 0)
+        and g._in_bounds(tr + dr, tc + dc)
+        and (tr + dr, tc + dc) in mines
+    ]
+    assert len(mine_neighbors) >= 2
+    g.toggle_flag(*mine_neighbors[0])
+
+    # 记录调用前快照
+    prev_revealed = set(g.revealed_cells)
+    prev_flagged = set(g._flagged)
+    prev_state = g.state
+
+    delta = g.chord(*target)
+    assert delta == []
+    assert set(g.revealed_cells) == prev_revealed
+    assert set(g._flagged) == prev_flagged
+    assert g.state is prev_state
+
+
+def test_chord_correct_flags_reveals_neighbors():
+    """正确插旗后 chord：返回集合恰好等于"未翻开、未插旗、非雷"的邻居。"""
+    g = Game(9, 9, 10, seed=33)
+    g.reveal(4, 4)
+    mines = g.snapshot_mines()
+
+    # 找一个有雷邻居的已翻开格
+    target = None
+    for (r, c) in g.revealed_cells:
+        adj = g.view(r, c).adjacent
+        if adj > 0:
+            target = (r, c)
+            break
+    assert target is not None
+
+    tr, tc = target
+    # 把该格的所有雷邻居都插旗
+    mine_neighbors = [
+        (tr + dr, tc + dc)
+        for dr in (-1, 0, 1) for dc in (-1, 0, 1)
+        if (dr, dc) != (0, 0)
+        and g._in_bounds(tr + dr, tc + dc)
+        and (tr + dr, tc + dc) in mines
+    ]
+    for mn in mine_neighbors:
+        g.toggle_flag(*mn)
+
+    # 计算期望的返回集合：未翻开、未插旗、非雷的邻居
+    expected = set()
+    for dr in (-1, 0, 1):
+        for dc in (-1, 0, 1):
+            if (dr, dc) == (0, 0):
+                continue
+            nr, nc = tr + dr, tc + dc
+            if not g._in_bounds(nr, nc):
+                continue
+            if (nr, nc) not in g.revealed_cells and (nr, nc) not in g._flagged and (nr, nc) not in mines:
+                expected.add((nr, nc))
+
+    delta = g.chord(*target)
+    assert set(delta) == expected
+
+
+def test_chord_wrong_flag_hits_mine():
+    """adjacent==1 的格，旗插在非雷邻居上（数匹配但位置错）-> chord 踩雷。"""
+    g = Game(9, 9, 10, seed=34)
+    g.reveal(4, 4)
+    mines = g.snapshot_mines()
+
+    # 找一个 adjacent == 1 的已翻开格
+    target = None
+    for (r, c) in g.revealed_cells:
+        if g.view(r, c).adjacent == 1:
+            target = (r, c)
+            break
+    assert target is not None
+
+    tr, tc = target
+    # 找出该格的雷邻居和非雷邻居
+    mine_neighbors = []
+    safe_neighbors = []
+    for dr in (-1, 0, 1):
+        for dc in (-1, 0, 1):
+            if (dr, dc) == (0, 0):
+                continue
+            nr, nc = tr + dr, tc + dc
+            if not g._in_bounds(nr, nc):
+                continue
+            if (nr, nc) in mines:
+                mine_neighbors.append((nr, nc))
+            elif (nr, nc) not in g.revealed_cells:
+                safe_neighbors.append((nr, nc))
+
+    assert len(mine_neighbors) == 1
+    assert len(safe_neighbors) >= 1
+
+    # 把旗插在一个非雷邻居上（数匹配：adjacent==1, nf==1，但位置错）
+    g.toggle_flag(*safe_neighbors[0])
+
+    delta = g.chord(*target)
+    assert g.state is GameState.LOST
+    assert g.exploded_cell == mine_neighbors[0]
+    assert mine_neighbors[0] in delta
+
+
+def test_chord_delta_has_no_duplicates():
+    """正确 chord 后断言 delta 无重复格。"""
+    g = Game(9, 9, 10, seed=35)
+    g.reveal(4, 4)
+    mines = g.snapshot_mines()
+
+    # 找一个有雷邻居的已翻开格并正确插旗
+    target = None
+    for (r, c) in g.revealed_cells:
+        if g.view(r, c).adjacent > 0:
+            target = (r, c)
+            break
+    assert target is not None
+
+    tr, tc = target
+    for dr in (-1, 0, 1):
+        for dc in (-1, 0, 1):
+            if (dr, dc) == (0, 0):
+                continue
+            nr, nc = tr + dr, tc + dc
+            if g._in_bounds(nr, nc) and (nr, nc) in mines:
+                g.toggle_flag(nr, nc)
+
+    delta = g.chord(*target)
+    assert len(delta) == len(set(delta))
+
+
+# ========== 信息面 ==========
+
+def test_flag_does_not_leak_mine_info():
+    """插旗不泄露雷位：任意时刻对所有格断言 view(r,c).mine is False（非 LOST 时）。"""
+    g = Game(9, 9, 10, seed=40)
+    g.reveal(4, 4)
+    if g.state is GameState.LOST:
+        return
+    # 插几面旗
+    g.toggle_flag(0, 0)
+    g.toggle_flag(0, 1)
+    g.toggle_flag(0, 2)
+    # 断言不泄露
+    for r in range(9):
+        for c in range(9):
+            assert g.view(r, c).mine is False
