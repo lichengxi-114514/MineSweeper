@@ -1,0 +1,7 @@
+# s5_lose: 9x9, 10 mines, seed=5
+# 覆盖：踩雷，X 与 * 的渲染
+# 注意：(0,3) 的坐标由作者离线用 snapshot_mines 确定，CLI 本身不读取雷位
+o 4 4
+o 0 0
+o 0 3
+q

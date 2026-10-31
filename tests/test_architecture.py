@@ -88,3 +88,34 @@ def test_rng_module_exists():
     tree = ast.parse(RNG.read_text(encoding="utf-8"))
     names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
     assert "make_rng" in names, "rng.py 未定义 make_rng"
+
+
+# ========== CLI 架构约束（T5）==========
+
+CLI_PY = SRC / "cli.py"
+FORBIDDEN_IN_CLI = (
+    "is_mine", "adjacent_at", "_board", "_revealed", "_flagged", "snapshot_mines",
+)
+
+
+def test_cli_does_not_reference_forbidden_names():
+    """cli.py 中不得出现 is_mine / adjacent_at / _board / _revealed / _flagged / snapshot_mines。"""
+    assert CLI_PY.is_file(), f"缺少 {CLI_PY}"
+    source = CLI_PY.read_text(encoding="utf-8")
+    for name in FORBIDDEN_IN_CLI:
+        assert name not in source, f"cli.py 包含禁用名字: {name}"
+
+
+def test_cli_does_not_import_board_or_rng():
+    """cli.py 不 import board / rng。"""
+    assert CLI_PY.is_file(), f"缺少 {CLI_PY}"
+    tree = ast.parse(CLI_PY.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        names: list[str] = []
+        if isinstance(node, ast.Import):
+            names = [a.name for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            names = [node.module or ""]
+        for name in names:
+            assert "board" not in name, f"cli.py import {name}"
+            assert "rng" not in name, f"cli.py import {name}"
