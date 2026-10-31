@@ -60,6 +60,12 @@ raise SystemExit(main(sys.argv[1:]))
 R、C 为 0-based 整数。非法指令（字段数不对、非整数、越界坐标）：
 向输出写一行 `ERROR <行号>: <原因>`，**继续执行后续指令**，不抛出异常。
 
+控制流约定（消除歧义）：
+- 非法指令：先输出 `ERROR <行号>: <原因>`，再输出当前屏；该屏状态与上一条
+  成功指令后相同。非法指令不得影响后续指令的执行。
+- `q`：不输出屏，直接终止读取。
+- 空脚本：只输出初始屏。
+
 ## 5. 输出格式（必须逐字节稳定）
 
 每次指令执行后输出一屏，格式固定：
@@ -89,6 +95,15 @@ R、C 为 0-based 整数。非法指令（字段数不对、非整数、越界�
 3. 屏与屏之间用一个空行分隔
 4. 结尾无多余空行；文件以单个 `\n` 结束
 5. 只使用 ASCII 字符与 `\n` 换行
+6. 开始执行任何指令之前，先输出初始屏（此时尚未布雷，全部为 `.`，
+   `flags=0`，`state=PLAYING`）。
+7. 屏与屏之间恰好一个空行；文件末尾只有一个 `\n`（最后一行行尾），
+   不得在末屏之后追加空行。
+8. 首行的 state 使用大写形式（`GameState.name`），即 `PLAYING` / `WON` / `LOST`，
+   不得使用 `.value` 的小写形式。
+9. LOST 状态下单格字符的优先级固定为：
+   `X`（踩中的那颗）> `*`（其余雷）> `F`（旗）> `0`-`8` > `.`
+   即插在雷上的旗在该状态下显示为 `*`。
 
 ## 6. 硬性禁令
 
@@ -98,6 +113,11 @@ R、C 为 0-based 整数。非法指令（字段数不对、非整数、越界�
   `game.state`、`game.view(r,c)`、`game.mines_left`、`game.revealed_cells` 读取
 - 不得引入第三方依赖（不用 `argparse` 以外的东西；`argparse` 是标准库，允许）
 - 任何地方不得读写 `examples/` 之外的路径
+- 不得访问任何以下划线开头的属性或方法（含 `_in_bounds`、`_board`、
+  `_revealed`、`_flagged`）。坐标越界一律用公开的 `game.rows` / `game.cols` 自查，
+  或捕获 core 抛出的 `IndexError`。
+- 不得在 `cli.py` 中重新实现雷数上界校验。雷数不合法时由 `Game.__init__`
+  抛 `ValueError`，CLI 捕获后输出消息并返回退出码 2。
 
 ## 7. 允许修改
 
@@ -148,6 +168,10 @@ R、C 为 0-based 整数。非法指令（字段数不对、非整数、越界�
 - `tests/test_architecture.py` 新增一条：`cli.py` 中不得出现
   `is_mine` / `adjacent_at` / `_board` / `_revealed` / `_flagged` / `snapshot_mines`
 - 断言 `cli.py` 不 import `minesweeper.core.board` 或 `.rng`
+- 断言期望文件不以 `b"\n\n"` 结尾（即末屏之后无空行）
+- 断言期望文件全部字节 < 128（纯 ASCII）
+- 脚本文件读取使用 `encoding="utf-8"`：构造一个含中文注释的脚本，
+  断言能正常执行而不抛 `UnicodeDecodeError`
 
 ## 10. 明确不做
 
@@ -174,6 +198,11 @@ R、C 为 0-based 整数。非法指令（字段数不对、非整数、越界�
 粘贴完整输出与 `git diff --stat`。
 
 ## 12. 交付前自检
+
+- `git diff --stat` 只含本任务允许的文件
+- `tools/check_skeleton.py` → 仍 `未实现 0，空壳 0`
+- 全量 pytest 全绿，总数比上阶段增加 10 条以上
+- 期望文件均为纯 ASCII、LF 换行、结尾单个 `\n`
 
 - `git diff --stat` 只含本任务允许的文件
 - `tools/check_skeleton.py` → 仍 `未实现 0，空壳 0`
